@@ -1,0 +1,23 @@
+[
+  {
+    "department": "8SS500",      
+    "employee_id": "S1607001",     
+    "employee_name": "Sunny Q Liu",
+    "inq_start_t": "2021/01/11",     
+    "inq_end_t": "2021/01/19"
+  },
+  {
+    "department": "8SS500",      
+    "employee_id": "S0712002",     
+    "employee_name": "Austin Zhang",
+    "inq_start_t": "2021/01/11",     
+    "inq_end_t": "2021/01/19"
+  },
+  {
+    "department": "8SS500",      
+    "employee_id": "S1905001",     
+    "employee_name": "John XC Li",
+    "inq_start_t": "2021/01/11",     
+    "inq_end_t": "2021/01/19"
+  }
+]

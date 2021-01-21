@@ -107,3 +107,4 @@ dist
 tmp/*.html
 
 *.db
+*.csv

@@ -8,6 +8,8 @@ const http = require('http'); // NOTE: import default module
 const fs = require('fs'); // NOTE: import default module
 const querystring = require('querystring'); // NOTE: import default module
 
+var sd = require('silly-datetime');
+
 //const conn = "conn.txt";
 var sqlhelper = require("./sqlitehelper");
 var Promise = require("bluebird");
@@ -328,10 +330,10 @@ function parseKQ(html) {
         let m = rex.exec(html);
         if (m) {
             let clock = {
-                "department": `"${m[1]}"`,
-                "employee_id": `"${m[2]}"`,
-                "name": `"${m[3]}"`,
-                "clock_time": `"${m[4]}"`
+                "department": `${m[1]}`,
+                "employee_id": `${m[2]}`,
+                "name": `${m[3]}`,
+                "clock_time": `${sd.format(m[4], 'YYYY-MM-DD HH:mm:ss')}`
             };
             clockTimeList.push(clock);
 
@@ -364,7 +366,7 @@ async function askAll() {
         .then(async function (data) {
             let employees = JSON.parse(data);
             for (let i = 0; i < employees.length; i++) {
-                await promiseInquire(`${employees[i].inq_start_t}`, `${employees[i].inq_end_t}`, `${employees[i].employee_name}`, false);
+                await promiseInquire(`${employees[i].inq_start_t}`, `${employees[i].inq_end_t}`, `${employees[i].employeeIdOrName}`, false);
             }
         })
         .then(function () {
@@ -372,8 +374,9 @@ async function askAll() {
                 .then(sqlhelper.openDb)
                 .then(sqlhelper.createSchema)
                 .then(sqlhelper.calculateClockData)
-                .then(sqlhelper.getClockReport)
-                .then(sqlhelper.showClockReport);
+                .then(sqlhelper.getClockReportData)
+                .then(sqlhelper.export2CSV)
+                .then(sqlhelper.showClockReportData);
         });
 }
 

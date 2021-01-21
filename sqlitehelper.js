@@ -3,13 +3,11 @@
 var fs = require("fs");
 var sqlite3 = require("sqlite3");
 var Promise = require("bluebird");
-
+const Json2csvParser = require('json2csv').Parser;
 const querystring = require('querystring');
 var db;
-
 var UUID = require('uuid');
 const batchid = UUID.v1();
-
 let _CLOCK_TIME = [];
 
 var getConn = function (clocks) {
@@ -42,9 +40,9 @@ var openDb = function (dbConn) {
 var createSchema = function () {
   return new Promise(function (resolve, reject) {
     db.serialize(function () {
-      var createEpmloyeeTable = "CREATE TABLE IF NOT EXISTS kq_employee ('department'  NVARCHAR(20),'employee_id' NVARCHAR(15), 'employee_name'  NVARCHAR(50), 'inq_start_t' NVARCHAR(20), 'inq_end_t' NVARCHAR(20), 'create_t' NVARCHAR(20))";
+      var createEpmloyeeTable = "CREATE TABLE IF NOT EXISTS kq_employee ('department'  NVARCHAR(20),'employee_id' NVARCHAR(15), 'employee_name'  NVARCHAR(50), 'inq_start_t' DATE, 'inq_end_t' DATE, 'create_t' DATETIME)";
       var createClockTable = "CREATE TABLE IF NOT EXISTS kq_clock_time ('batchid' NVARCHAR(50), 'department'  NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_time' DATETIME)";
-      var createReportTable = "CREATE TABLE IF NOT EXISTS kq_clock_report ('batchid' NVARCHAR(50), 'department' NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_date' NVARCHAR(20), 'clock_time_start' NVARCHAR(20), 'clock_time_end' NVARCHAR(20), 'work_hour' INT, 'status' NVARCHAR(20),'create_t' NVARCHAR(20))";
+      var createReportTable = "CREATE TABLE IF NOT EXISTS kq_clock_report ('batchid' NVARCHAR(50), 'department' NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_date' DATE, 'clock_in_t' DATETIME, 'clock_out_t' DATETIME, 'work_hour' INT, 'status' NVARCHAR(20),'stipulate_in_t' DATETIME,'stipulate_out_t' DATETIME,'create_t' DATETIME)";
       db.exec(createEpmloyeeTable, function (err) {
         if (err) {
           reject(err);
@@ -96,8 +94,8 @@ var calculateClockData = function (batchid) {
       var deleteData = `DELETE FROM kq_clock_report WHERE batchid='${batchid}'`;
       //lock_date分组，clock_time排序，每组取第一个作为clock_time_start
       var insertStartData = `
-        INSERT INTO kq_clock_report(batchid,department,employee_id,employee_name,clock_date,clock_time_start,Create_t)
-        SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,DATETIME() FROM(
+        INSERT INTO kq_clock_report(batchid,department,employee_id,employee_name,clock_date,clock_in_t,stipulate_in_t,stipulate_out_t,Create_t)
+        SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') FROM(
           SELECT SUBSTR(clock_time,0,INSTR(clock_time,' ')) AS clock_date,batchid,department,employee_id,employee_name,clock_time
             ,ROW_NUMBER() OVER(PARTITION BY SUBSTR(clock_time,0,INSTR(clock_time,' ')),batchid,department,employee_id,employee_name ORDER BY clock_time) AS RN
           FROM [kq_clock_time]
@@ -108,7 +106,7 @@ var calculateClockData = function (batchid) {
       //clock_date分组，clock_time排序，每组取最后一个作为clock_time_end
       var updateEndData = `
         UPDATE kq_clock_report 
-        SET clock_time_end = (
+        SET clock_out_t = (
           SELECT clock_time FROM(
             SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,RN,RN_MAX
             FROM(
@@ -131,28 +129,25 @@ var calculateClockData = function (batchid) {
         WHERE batchid='${batchid}'         
       `;
       //更新work_hour
-      var updateWorkHour=`
+      var updateWorkHour = `
         UPDATE kq_clock_report
-        SET work_hour=CASE WHEN clock_time_start IS NOT NULL AND clock_time_end IS NOT NULL
-                    THEN --datediff(hour, clock_time_start,clock_time_end)
-                    (julianday( clock_time_end )-   julianday(strftime('%Y-%m-%d %H:%M',clock_time_start)))*24 
+        SET work_hour=CASE WHEN clock_in_t IS NOT NULL AND clock_out_t IS NOT NULL
+                    THEN (julianday(clock_out_t) - julianday(clock_in_t))*24 
                   ELSE 0
               END
         WHERE BatchID='${batchid}' 
       `;
       //更新Status
-      var updateStatus=`
+      var updateStatus = `
         UPDATE kq_clock_report
-        SET Status=CASE WHEN clock_time_start IS NULL AND clock_time_end IS NULL THEN '請假'
-                WHEN clock_time_start IS NULL OR clock_time_end IS NULL OR (clock_time_start = clock_time_end) THEN '只刷一次'
-                WHEN clock_time_start IS NOT NULL AND clock_time_end IS NOT NULL
+        SET status=CASE WHEN clock_in_t IS NULL AND clock_out_t IS NULL THEN '請假'
+                WHEN clock_in_t IS NULL OR clock_out_t IS NULL OR (clock_in_t = clock_out_t) THEN '只刷一次'
+                WHEN clock_in_t IS NOT NULL AND clock_out_t IS NOT NULL
                   THEN (
-                    CASE WHEN CAST(clock_time_start AS DATETIME) > CAST((clock_date+' 08:50:59') AS DATETIME) THEN '遲到' 
-                      WHEN CAST(clock_time_end AS DATETIME) > CAST((clock_date+' 08:50:59') AS DATETIME) 
-                        AND CAST(clock_time_end AS DATETIME) < CAST((clock_date+' 16:50:59') AS DATETIME) 
-                        AND clock_time_start <> clock_time_end THEN '早退'
-                      WHEN work_hour < 9 THEN '工時不足'
-                      ELSE '正常'
+                    CASE WHEN clock_in_t > stipulate_in_t THEN '遲到' 
+                        WHEN clock_out_t > stipulate_in_t AND clock_out_t < stipulate_out_t AND clock_in_t <> clock_out_t THEN '早退'
+                        WHEN work_hour < 9 THEN '工時不足'
+                        ELSE '正常'
                     END
                   )
                 ELSE '正常'
@@ -164,7 +159,7 @@ var calculateClockData = function (batchid) {
         if (err) {
           reject(err);
         } else {
-          console.log("delete report data");
+          console.log("delete report data by batchid");
         }
       });
 
@@ -172,7 +167,7 @@ var calculateClockData = function (batchid) {
         if (err) {
           reject(err);
         } else {
-          console.log("insert start data");
+          console.log("insert in data");
         }
       });
 
@@ -180,7 +175,7 @@ var calculateClockData = function (batchid) {
         if (err) {
           reject(err);
         } else {
-          console.log("update end data");
+          console.log("update out data");
         }
       });
 
@@ -273,20 +268,40 @@ var insertClockTime2DB = function (clock) {
   });
 }
 
-var getClockReport = function (batchid) {
+var getClockReportData = function (batchid) {
   return new Promise(function (resolve, reject) {
-    db.all(`SELECT * FROM kq_clock_report where batchid='${batchid}' ORDER BY department,employee_id,CAST(clock_time_start AS DATETIME)`, function (err, data) {
+    db.all(`SELECT * FROM kq_clock_report where batchid='${batchid}' ORDER BY department,employee_id,clock_in_t`, function (err, data) {
       if (err) {
         reject(err);
       } else {
-        console.log("getClockReport");
+        console.log("getClockReportData");
         resolve(data);
       }
     });
   });
 }
 
-var showClockReport = function (employee) {
+var export2CSV = function (data) {
+  return new Promise(function (resolve, reject) {
+    const fields = ['batchid', 'department', 'employee_id', 'employee_name', 'clock_date', 'clock_in_t', 'clock_out_t', 'work_hour', 'status', 'stipulate_in_t', 'stipulate_out_t', 'create_t'];
+    const json2csvParser = new Json2csvParser({
+      fields
+    });
+    let clockData = data;
+    const csv = json2csvParser.parse(clockData);
+    //console.log(csv);
+    fs.writeFile("./tmp/Report.csv", `\ufeff${csv}`, 'utf-8', function (err, data) {
+      if (err) {
+        reject(err);
+      } else {
+        console.log("tmp/Report.csv was saved");
+        resolve(clockData);
+      }
+    });
+  });
+}
+
+var showClockReportData = function (employee) {
   console.log(employee);
 }
 
@@ -299,6 +314,7 @@ module.exports = {
   getInqEmployeeList,
   insertEmployee2DB,
   insertClockTime2DB,
-  getClockReport,
-  showClockReport
+  getClockReportData,
+  export2CSV,
+  showClockReportData
 }

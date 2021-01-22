@@ -144,7 +144,12 @@ var calculateClockData = function (batchid) {
                 WHEN clock_in_t IS NULL OR clock_out_t IS NULL OR (clock_in_t = clock_out_t) THEN '只刷一次'
                 WHEN clock_in_t IS NOT NULL AND clock_out_t IS NOT NULL
                   THEN (
-                    CASE WHEN clock_in_t > stipulate_in_t THEN '遲到' 
+                    CASE 
+                      WHEN (clock_in_t > stipulate_in_t) AND (clock_out_t > stipulate_in_t AND clock_out_t < stipulate_out_t AND clock_in_t <> clock_out_t) AND (work_hour < 9) THEN '遲到 早退 工時不足' 
+                      WHEN (clock_in_t > stipulate_in_t) AND (clock_out_t > stipulate_in_t AND clock_out_t < stipulate_out_t AND clock_in_t <> clock_out_t) THEN '遲到 早退'
+                      WHEN (clock_in_t > stipulate_in_t) AND (work_hour < 9) THEN '遲到 工時不足'
+                      WHEN (clock_out_t > stipulate_in_t AND clock_out_t < stipulate_out_t AND clock_in_t <> clock_out_t) AND (work_hour < 9) THEN '早退 工時不足'
+                      WHEN clock_in_t > stipulate_in_t THEN '遲到' 
                         WHEN clock_out_t > stipulate_in_t AND clock_out_t < stipulate_out_t AND clock_in_t <> clock_out_t THEN '早退'
                         WHEN work_hour < 9 THEN '工時不足'
                         ELSE '正常'
@@ -152,8 +157,8 @@ var calculateClockData = function (batchid) {
                   )
                 ELSE '正常'
               END
-        WHERE BatchID='${batchid}'        
-      `;
+        WHERE BatchID='${batchid}'      
+      `;   
 
       db.run(deleteData, function (err) {
         if (err) {

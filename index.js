@@ -361,7 +361,7 @@ const promiseInquire = (beginDate, endDate, employeeIdOrName, nextPage) => {
     });
 }
 
-async function askAll() {
+function askAll() {
     sqlhelper.getInqEmployeeList()
         .then(async function (data) {
             let employees = JSON.parse(data);

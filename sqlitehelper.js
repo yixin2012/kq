@@ -144,7 +144,7 @@ var createSchema = function () {
         } else {
           console.log("create table kq_clock_report");
           db.run(`insert into kq_clock_report (batchid,department,employee_id,employee_name,clock_date,day_of_week,stipulate_in_t,stipulate_out_t,create_t)	
-                  select batchid,department,employee_id,employee_name,clock_date,day_of_week,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') from kq_employee ke WHERE batchid=$batchid`, {
+                  select batchid,department,employee_id,employee_name,clock_date,day_of_week,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:00',clock_date,'localtime'),datetime('now', 'localtime') from kq_employee ke WHERE batchid=$batchid`, {
             $batchid: batchid
           }, function (err, data) {
             if (err) {
@@ -169,7 +169,7 @@ var calculateClockData = function (batchid) {
         UPDATE kq_clock_report 
         SET clock_in_t = (
           SELECT clock_time FROM(
-            SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') FROM(
+            SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,datetime('now', 'localtime') FROM(
               SELECT SUBSTR(clock_time,0,INSTR(clock_time,' ')) AS clock_date,batchid,department,employee_id,employee_name,clock_time
                 ,ROW_NUMBER() OVER(PARTITION BY SUBSTR(clock_time,0,INSTR(clock_time,' ')),batchid,department,employee_id,employee_name ORDER BY clock_time) AS RN
               FROM [kq_clock_time]

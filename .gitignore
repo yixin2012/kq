@@ -106,5 +106,5 @@ dist
 # execution output files
 tmp/*.html
 
-*.db
+# *.db
 *.csv

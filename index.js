@@ -15,6 +15,7 @@ var sqlhelper = require("./sqlitehelper");
 var Promise = require("bluebird");
 
 let _CLOCK_TIME = [];
+let _EMPLOYEES = [];
 
 //
 // Step 1: Open login page to get cookie 'ASP.NET_SessionId' and hidden input '_ASPNetRecycleSession'.
@@ -222,7 +223,8 @@ function inquire(beginDate, endDate, employeeIdOrName, nextPage, nextStep) {
             let buff = Buffer.concat(chunks);
             let html = buff.toString();
             if (response.statusCode === 200) {
-                let result = parseKQ(html);
+                let allDate = getAllDate(sd.format(beginDate, 'YYYY-MM-DD'), sd.format(endDate, 'YYYY-MM-DD'));
+                let result = parseKQ(html, allDate);
 
                 result.clockTimeList.forEach(function (clock) {
                     _CLOCK_TIME.push(clock);
@@ -297,7 +299,7 @@ function inquire(beginDate, endDate, employeeIdOrName, nextPage, nextStep) {
  * @param {*} html 
  * @return number of current page and number of total pages.
  */
-function parseKQ(html) {
+function parseKQ(html, allDate) {
     // Get number of pages.
     let curPage = 1;
     let numPages = 1;
@@ -337,6 +339,12 @@ function parseKQ(html) {
             };
             clockTimeList.push(clock);
 
+            for (let i = 0; i < allDate.length; i++) {
+                if (!_EMPLOYEES.includes(`<data>${m[1]}</data><data>${m[2]}</data><data>${m[3]}</data><data>${sd.format(allDate[i], 'YYYY-MM-DD')}</data>`)) {
+                    _EMPLOYEES.push(`<data>${m[1]}</data><data>${m[2]}</data><data>${m[3]}</data><data>${sd.format(allDate[i], 'YYYY-MM-DD')}</data>`);
+                }
+            }
+
             //console.log(`${m[1]} ${m[2]} ${m[3]} ${m[4]}`);
             html = html.substr(rex.lastIndex);
         } else {
@@ -361,6 +369,22 @@ const promiseInquire = (beginDate, endDate, employeeIdOrName, nextPage) => {
     });
 }
 
+function getAllDate(sDate, eDate) {
+    var allDate = new Array();
+    var i = 0;
+    while (sDate <= eDate) {
+        allDate[i] = sDate;
+        var sDate_ts = new Date(sDate).getTime();
+        var nextDate = sDate_ts + (24 * 60 * 60 * 1000);
+        var nextDateYear = new Date(nextDate).getFullYear() + '-';
+        var nextDateMonth = (new Date(nextDate).getMonth() + 1 < 10) ? '0' + (new Date(nextDate).getMonth() + 1) + '-' : (new Date(nextDate).getMonth() + 1) + '-';
+        var nextDateDay = (new Date(nextDate).getDate() < 10) ? '0' + new Date(nextDate).getDate() : new Date(nextDate).getDate();
+        sDate = nextDateYear + nextDateMonth + nextDateDay;
+        i++;
+    }
+    return allDate;
+}
+
 function askAll() {
     sqlhelper.getInqEmployeeList()
         .then(async function (data) {
@@ -370,13 +394,13 @@ function askAll() {
             }
         })
         .then(function () {
-            sqlhelper.getConn(_CLOCK_TIME)
+            sqlhelper.getConn(_CLOCK_TIME, _EMPLOYEES)
                 .then(sqlhelper.openDb)
                 .then(sqlhelper.createSchema)
                 .then(sqlhelper.calculateClockData)
                 .then(sqlhelper.getClockReportData)
                 .then(sqlhelper.export2CSV)
-                .then(sqlhelper.showClockReportData);
+                //.then(sqlhelper.showClockReportData);
         });
 }
 

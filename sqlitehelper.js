@@ -9,8 +9,9 @@ var db;
 var UUID = require('uuid');
 const batchid = UUID.v1();
 let _CLOCK_TIME = [];
+let _EMPLOYEES = [];
 
-var getConn = function (clocks) {
+var getConn = function (clocks, employees) {
   return new Promise(function (resolve, reject) {
     fs.readFile("conn.txt", "utf-8", function (err, data) {
       if (err) {
@@ -19,6 +20,7 @@ var getConn = function (clocks) {
         console.log("db: ".concat(data));
         resolve(data.trim());
         _CLOCK_TIME = clocks;
+        _EMPLOYEES = employees;
       }
     });
   });
@@ -37,17 +39,78 @@ var openDb = function (dbConn) {
   });
 }
 
+let getDayOfWeek = function (theDate) {
+  let dayOfWeek = new Date(theDate).getDay();
+  switch (dayOfWeek) {
+    case 0:
+      dayOfWeek = 'Sunday';
+      break;
+    case 1:
+      dayOfWeek = 'Monday';
+      break;
+    case 2:
+      dayOfWeek = 'Tuesday';
+      break;
+    case 3:
+      dayOfWeek = 'Wednesday';
+      break;
+    case 4:
+      dayOfWeek = 'Thursday';
+      break;
+    case 5:
+      dayOfWeek = 'Friday';
+      break;
+    case 6:
+      dayOfWeek = 'Saturday';
+      break;
+    default:
+      break;
+  }
+  return dayOfWeek;
+}
+
 var createSchema = function () {
   return new Promise(function (resolve, reject) {
     db.serialize(function () {
-      var createEpmloyeeTable = "CREATE TABLE IF NOT EXISTS kq_employee ('department'  NVARCHAR(20),'employee_id' NVARCHAR(15), 'employee_name'  NVARCHAR(50), 'inq_start_t' DATE, 'inq_end_t' DATE, 'create_t' DATETIME)";
+      var dropEpmloyeeTable = "DROP TABLE IF EXISTS kq_employee"
+      var createEpmloyeeTable = "CREATE TABLE IF NOT EXISTS kq_employee ('batchid' NVARCHAR(50), 'department' NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_date' DATE, 'day_of_week' NVARCHAR(20))";
       var createClockTable = "CREATE TABLE IF NOT EXISTS kq_clock_time ('batchid' NVARCHAR(50), 'department'  NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_time' DATETIME)";
-      var createReportTable = "CREATE TABLE IF NOT EXISTS kq_clock_report ('batchid' NVARCHAR(50), 'department' NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_date' DATE, 'clock_in_t' DATETIME, 'clock_out_t' DATETIME, 'work_hour' INT, 'status' NVARCHAR(20),'stipulate_in_t' DATETIME,'stipulate_out_t' DATETIME,'create_t' DATETIME)";
+      var createReportTable = "CREATE TABLE IF NOT EXISTS kq_clock_report ('batchid' NVARCHAR(50), 'department' NVARCHAR(20), 'employee_id' NVARCHAR(15), 'employee_name' NVARCHAR(50), 'clock_date' DATE, 'day_of_week' NVARCHAR(20), 'clock_in_t' DATETIME, 'clock_out_t' DATETIME, 'work_hour' INT, 'status' NVARCHAR(20),'stipulate_in_t' DATETIME,'stipulate_out_t' DATETIME,'create_t' DATETIME)";
+
+      db.exec(dropEpmloyeeTable, function (err, data) {
+        if (err) {
+          reject(err);
+        } else {
+          console.log("drop table kq_employee");
+        }
+      });
+
       db.exec(createEpmloyeeTable, function (err) {
         if (err) {
           reject(err);
         } else {
           console.log("create table kq_employee");
+          _EMPLOYEES.forEach(function (employee) {
+            let rex = new RegExp('<data>(.*?)</data><data>(.*?)</data><data>(.*?)</data><data>(.*?)</data>', 'g'); // NOTE: 'g' is important
+            let m = rex.exec(employee);
+            if (m) {
+              db.run("insert into kq_employee(batchid,department,employee_id,employee_name,clock_date,day_of_week) VALUES ( $batchid,  $department,  $employee_id,  $employee_name, $clock_date, $day_of_week)", {
+                $batchid: batchid,
+                $department: m[1],
+                $employee_id: m[2],
+                $employee_name: m[3],
+                $clock_date: m[4],
+                $day_of_week: getDayOfWeek(m[4])
+              }, function (err, data) {
+                if (err) {
+                  reject(err);
+                } else {
+                  //console.log("成功插入1笔kq_employee记录");
+                }
+              });
+            }
+          });
+          console.log("init kq_employee data");
         }
       });
 
@@ -56,14 +119,6 @@ var createSchema = function () {
           reject(err);
         } else {
           console.log("create table kq_clock_time");
-        }
-      });
-
-      db.exec(createReportTable, function (err, data) {
-        if (err) {
-          reject(err);
-        } else {
-          console.log("create table kq_clock_report");
           _CLOCK_TIME.forEach(function (clock) {
             db.run("insert into kq_clock_time(batchid,department,employee_id,employee_name,clock_time) VALUES ($batchid, $department, $employee_id, $employee_name, $clock_time)", {
               $batchid: batchid,
@@ -75,11 +130,30 @@ var createSchema = function () {
               if (err) {
                 reject(err);
               } else {
-                //console.log("成功插入1笔记录");
+                //console.log("成功插入1笔kq_clock_time记录");
               }
             });
           });
-          console.log("init data");
+          console.log("init kq_clock_time data");
+        }
+      });
+
+      db.exec(createReportTable, function (err, data) {
+        if (err) {
+          reject(err);
+        } else {
+          console.log("create table kq_clock_report");
+          db.run(`insert into kq_clock_report (batchid,department,employee_id,employee_name,clock_date,day_of_week,stipulate_in_t,stipulate_out_t,create_t)	
+                  select batchid,department,employee_id,employee_name,clock_date,day_of_week,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') from kq_employee ke WHERE batchid=$batchid`, {
+            $batchid: batchid
+          }, function (err, data) {
+            if (err) {
+              reject(err);
+            } else {
+              //console.log("成功插入1笔kq_clock_report记录");
+            }
+          });
+          console.log("init kq_clock_report data");
           resolve(batchid);
         }
       });
@@ -90,18 +164,24 @@ var createSchema = function () {
 var calculateClockData = function (batchid) {
   return new Promise(function (resolve, reject) {
     db.serialize(function () {
-      //删掉相同批号的数据
-      var deleteData = `DELETE FROM kq_clock_report WHERE batchid='${batchid}'`;
-      //lock_date分组，clock_time排序，每组取第一个作为clock_time_start
+      //clock_date分组，clock_time排序，每组取第一个作为clock_time_start
       var insertStartData = `
-        INSERT INTO kq_clock_report(batchid,department,employee_id,employee_name,clock_date,clock_in_t,stipulate_in_t,stipulate_out_t,Create_t)
-        SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') FROM(
-          SELECT SUBSTR(clock_time,0,INSTR(clock_time,' ')) AS clock_date,batchid,department,employee_id,employee_name,clock_time
-            ,ROW_NUMBER() OVER(PARTITION BY SUBSTR(clock_time,0,INSTR(clock_time,' ')),batchid,department,employee_id,employee_name ORDER BY clock_time) AS RN
-          FROM [kq_clock_time]
-          WHERE batchid='${batchid}'
-        ) T
-        WHERE RN=1      
+        UPDATE kq_clock_report 
+        SET clock_in_t = (
+          SELECT clock_time FROM(
+            SELECT batchid,department,employee_id,employee_name,clock_date,clock_time,strftime('%Y-%m-%d 08:50:59',clock_date,'localtime'),strftime('%Y-%m-%d 16:50:59',clock_date,'localtime'),datetime('now', 'localtime') FROM(
+              SELECT SUBSTR(clock_time,0,INSTR(clock_time,' ')) AS clock_date,batchid,department,employee_id,employee_name,clock_time
+                ,ROW_NUMBER() OVER(PARTITION BY SUBSTR(clock_time,0,INSTR(clock_time,' ')),batchid,department,employee_id,employee_name ORDER BY clock_time) AS RN
+              FROM [kq_clock_time]
+              WHERE batchid='${batchid}'
+            ) T
+            WHERE RN=1 	
+          )T3
+          WHERE T3.batchid=kq_clock_report.batchid AND T3.department=kq_clock_report.department 
+            AND T3.employee_id=kq_clock_report.employee_id AND T3.employee_name=kq_clock_report.employee_name 
+            AND T3.clock_date=kq_clock_report.clock_date
+        )
+        WHERE batchid='${batchid}'  
       `;
       //clock_date分组，clock_time排序，每组取最后一个作为clock_time_end
       var updateEndData = `
@@ -140,7 +220,13 @@ var calculateClockData = function (batchid) {
       //更新Status
       var updateStatus = `
         UPDATE kq_clock_report
-        SET status=CASE WHEN clock_in_t IS NULL AND clock_out_t IS NULL THEN '請假'
+        SET status=CASE WHEN clock_date > create_t THEN '未發生'
+                WHEN day_of_week in ('Saturday','Sunday') AND work_hour > 0 THEN '週末加班'
+                WHEN day_of_week in ('Saturday','Sunday') AND work_hour = 0 THEN '週末'
+                WHEN strftime('%m-%d',clock_date,'localtime')='01-01' THEN '元旦'
+                WHEN strftime('%m-%d',clock_date,'localtime')='05-01' THEN '勞動節'
+                WHEN strftime('%m-%d',clock_date,'localtime') in('10-01','10-02','10-03') THEN '國慶節'
+                WHEN clock_in_t IS NULL AND clock_out_t IS NULL THEN '請假'
                 WHEN clock_in_t IS NULL OR clock_out_t IS NULL OR (clock_in_t = clock_out_t) THEN '只刷一次'
                 WHEN clock_in_t IS NOT NULL AND clock_out_t IS NOT NULL
                   THEN (
@@ -158,21 +244,13 @@ var calculateClockData = function (batchid) {
                 ELSE '正常'
               END
         WHERE BatchID='${batchid}'      
-      `;   
-
-      db.run(deleteData, function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          console.log("delete report data by batchid");
-        }
-      });
+      `;
 
       db.run(insertStartData, function (err) {
         if (err) {
           reject(err);
         } else {
-          console.log("insert in data");
+          console.log("update in data");
         }
       });
 
@@ -275,7 +353,7 @@ var insertClockTime2DB = function (clock) {
 
 var getClockReportData = function (batchid) {
   return new Promise(function (resolve, reject) {
-    db.all(`SELECT * FROM kq_clock_report where batchid='${batchid}' ORDER BY department,employee_id,clock_in_t`, function (err, data) {
+    db.all(`SELECT * FROM kq_clock_report where batchid='${batchid}' ORDER BY department,employee_id,clock_date`, function (err, data) {
       if (err) {
         reject(err);
       } else {
@@ -288,7 +366,7 @@ var getClockReportData = function (batchid) {
 
 var export2CSV = function (data) {
   return new Promise(function (resolve, reject) {
-    const fields = ['batchid', 'department', 'employee_id', 'employee_name', 'clock_date', 'clock_in_t', 'clock_out_t', 'work_hour', 'status', 'stipulate_in_t', 'stipulate_out_t', 'create_t'];
+    const fields = ['batchid', 'department', 'employee_id', 'employee_name', 'clock_date', 'day_of_week', 'clock_in_t', 'clock_out_t', 'work_hour', 'status', 'stipulate_in_t', 'stipulate_out_t', 'create_t'];
     const json2csvParser = new Json2csvParser({
       fields
     });

@@ -227,6 +227,8 @@ var calculateClockData = function (batchid) {
                 WHEN strftime('%m-%d',clock_date,'localtime')='05-01' THEN '勞動節'
                 WHEN strftime('%m-%d',clock_date,'localtime') in('10-01','10-02','10-03') THEN '國慶節'
                 WHEN clock_in_t IS NULL AND clock_out_t IS NULL THEN '請假'
+                WHEN clock_in_t IS NOT NULL AND clock_in_t > stipulate_in_t AND (clock_in_t = clock_out_t) THEN '遲到 只刷一次'
+                WHEN clock_in_t IS NULL AND clock_out_t IS NOT NULL AND clock_out_t < stipulate_out_t THEN '早退 只刷一次'
                 WHEN clock_in_t IS NULL OR clock_out_t IS NULL OR (clock_in_t = clock_out_t) THEN '只刷一次'
                 WHEN clock_in_t IS NOT NULL AND clock_out_t IS NOT NULL
                   THEN (
